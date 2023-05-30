@@ -1,0 +1,9 @@
+streamlit
+streamlit_chat
+requests
+langchain
+openai
+tiktoken
+git+https://github.com/hunkim/streamlit-google-oauth
+python-dotenv
+psycopg[binary]

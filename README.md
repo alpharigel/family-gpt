@@ -7,16 +7,18 @@ Personal GPT assistant for every member of your family, via Streamlit, Langchain
 A few things to get you started locally:
 
 1. git clone to your local filesystem
-2. create a virtual environment locally
-2. `pip install -r requirements`
-3. Create a local postgres sql database to store your local configuration, or a dev database for deployment.
-3. create a `.env` file with your environment variables:
-    OPENAI_API_KEY=
-    GOOGLE_CLIENT_ID=
-    GOOGLE_CLIENT_SECRET=
-    GOOGLE_REDIRECT_URI=http://localhost:8080/  # this will be changed with your deployment
-    DATABASE_URL="dbname=postgres user=postgres  password=XXX" # or whatever you have for your local database
-4. `streamlit run app.py `
+1. create a virtual environment locally
+1. `pip install -r requirements`
+1. Create a local postgres sql database to store your local configuration, or a dev database for deployment.
+1. create a `.env` file with your environment variables:
+```
+OPENAI_API_KEY=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:8080/  # this will be changed with your deployment
+DATABASE_URL="dbname=postgres user=postgres  password=XXX" # or whatever you have for your local database
+```
+1. `streamlit run app.py `
 
 If you dont want to go through the hassle of setting up google credentials or a postgres SQL Database right away
 you can comment out that code and run the app without saving messages or user-specific authorization and configuration.

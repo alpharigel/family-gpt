@@ -7,6 +7,8 @@ import pickle
 from dotenv import load_dotenv
 import streamlit_google_oauth as oauth
 import os
+from util.db_postgress import FamilyGPTDatabase, AgentConfig
+from langchain.memory.chat_message_histories import ZepChatMessageHistory
 
 load_dotenv()
 
@@ -14,6 +16,7 @@ client_id = os.environ["GOOGLE_CLIENT_ID"]
 client_secret = os.environ["GOOGLE_CLIENT_SECRET"]
 redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
 db_connection_string = os.environ["DATABASE_URL"]
+ZEP_API_URL = os.environ["ZEP_API_URL"]
 
 from langchain.prompts import (
     ChatPromptTemplate,
@@ -27,27 +30,35 @@ from langchain.memory import ConversationBufferMemory, ConversationSummaryBuffer
 from langchain.schema import messages_to_dict, messages_from_dict
 from langchain.schema import AIMessage, HumanMessage, SystemMessage
 
-from util.base_prompt import BASE_PROMPT
+from util.streamlit_agent import StreamlitAgent
+
+from util.chat_agent.prompt import BASE_PROMPT
+
+from util.chat_agent.agent import ChatAgent
+from util.zep_chat_agent.agent import ZepChatAgent
+
+from enum import Enum
+class AgentType(str, Enum):
+    CONVERSATION_CHAIN = "Conversation Chain"
+    CHAIN_WITH_ZEP = "Conversation Chain with Zep"
 
 
-def generate_chatter(user_prompt: str, ai_name: str):
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            SystemMessagePromptTemplate.from_template(user_prompt),
-            MessagesPlaceholder(variable_name="history"),
-            HumanMessagePromptTemplate.from_template("{input}"),
-        ]
-    )
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
-    llm = ChatOpenAI(temperature=0.8)
-    memory = ConversationSummaryBufferMemory(
-        llm=llm, max_token_limit=800, return_messages=True, ai_prefix=ai_name
-    )
-    # memory = ConversationBufferMemory(return_messages=True)
-    conversation = ConversationChain(memory=memory, prompt=prompt, llm=llm)
+@st.cache_resource
+def generate_agent(database: FamilyGPTDatabase, user_id: str, agent_id: str, agent_tpe: str, user_prompt: str, ai_prefix: str, session_id: str) -> StreamlitAgent:
+    """Generate an agent based on the agent type."""
 
-    return conversation
-
+    if agent_tpe == AgentType.CONVERSATION_CHAIN:
+        return ChatAgent(database, user_id, agent_id, user_prompt, ai_prefix)
+    elif agent_tpe == AgentType.CHAIN_WITH_ZEP:
+        return ZepChatAgent(session_id, user_prompt, ai_prefix)
+    else:
+        raise ValueError(f"Unknown agent type: {agent_tpe}")
+    
 
 def init_session_state(configs: dict, superuser: bool = False):
     """
@@ -88,33 +99,12 @@ def init_session_state(configs: dict, superuser: bool = False):
         st.session_state["loaded_from_db"] = False
 
 
-def rebuild_memory():
-    memory = st.session_state["chatter"].memory
-    memory.clear()
-    for user, ai in zip(st.session_state.past, st.session_state.generated):
-        memory.save_context({"input": user}, {"output": ai})
 
 
 import copy
 
-from dataclasses import dataclass
 
-
-@dataclass
-class AgentConfig:
-    """
-    Data class that contains the minimum data in an agent configuration
-    """
-
-    agent_id: str
-    agent_name: str
-    config_name: str
-    config_data: dict  # usually contains 'prompt'
-    update_date: datetime.datetime
-    hidden: bool
-
-
-def render_sidebar(configs: dict, user_id: str, superuser: bool = False):
+def render_sidebar(configs: dict, user_id: str, superuser: bool, database: FamilyGPTDatabase) -> StreamlitAgent:
     """
     Render the sidebar with the prompt selection and the prompt saving
 
@@ -143,6 +133,7 @@ def render_sidebar(configs: dict, user_id: str, superuser: bool = False):
                 config_name="New_" + datetime.datetime.now().strftime("%Y%m%d"),
                 config_data = {
                     "prompt": BASE_PROMPT,
+                    "agent_type": AgentType.CONVERSATION_CHAIN,
                 },
                 update_date=datetime.datetime.now(),
                 hidden=superuser,
@@ -162,7 +153,7 @@ def render_sidebar(configs: dict, user_id: str, superuser: bool = False):
 
         config_names.insert(-1, new_config_name)
         config_data = copy.deepcopy(prior_config.config_data)
-        new_config = save_config(
+        new_config = database.save_config(
             user_id=user_id, config_name=new_config_name, config_data=config_data, superuser=superuser, agent_name=ai_name
         )
         st.success(f"New config '{new_config_name}' created!")
@@ -180,8 +171,8 @@ def render_sidebar(configs: dict, user_id: str, superuser: bool = False):
         # switch to the new config and load the messages
         config = configs[selected_prompt_name]
         agent_id = config.agent_id
-        if "chatter" not in st.session_state:
-            st.session_state["chatter"] = generate_chatter(config.config_data['prompt'], config.agent_name)
+        if "agent" not in st.session_state:
+            st.session_state["agent"] = generate_agent(database, user_id, agent_id, config.config_data['prompt'], config.agent_name)
 
         load_messages(user_id, agent_id)
 
@@ -212,254 +203,23 @@ def render_sidebar(configs: dict, user_id: str, superuser: bool = False):
 
     apply_prompt = st.button("Apply", key="apply_widget")
     if apply_prompt:
-        st.session_state["chatter"] = generate_chatter(full_prompt, ai_name)
-        memory = st.session_state["chatter"].memory
+        st.session_state["agent"] = generate_agent(full_prompt, ai_name)
+        memory = st.session_state["agent"].memory
         memory.clear()
         for user, ai in zip(st.session_state.past, st.session_state.generated):
             memory.save_context({"input": user}, {"output": ai})
 
-    elif "chatter" not in st.session_state:
-        st.session_state["chatter"] = generate_chatter(full_prompt, ai_name)
+    elif "agent" not in st.session_state:
+        st.session_state["agent"] = generate_agent(full_prompt, ai_name)
 
-    if st.button("Current summary"):
-        memory = st.session_state["chatter"].memory
-        messages = memory.chat_memory.messages
-        previous_summary = ""
-        my_summary = memory.predict_new_summary(messages, previous_summary)
-        st.write(my_summary)
-
-    if st.button("Clear messages"):
-        st.session_state.past = []
-        st.session_state["past_id"] = []
-        st.session_state["generated"] = []
-        st.session_state["generated_id"] = []
-        st.session_state["last_input"] = ""
-        st.session_state["submitted_input"] = ""
-        rebuild_memory()
-
-    if st.button("Load messages"):
-        load_messages(user_id=user_id, agent_id=agent_id)
-
-    pop_last = st.button("Undo last message", key="undo_widget")
-    if pop_last:
-        st.session_state.submitted_input = ""
-        st.session_state.past.pop()
-        st.session_state.generated.pop()
-        delete_message(user_id, agent_id, st.session_state["past_id"].pop())
-        delete_message(user_id, agent_id, st.session_state["generated_id"].pop())
-        rebuild_memory()
-        st.session_state["last_input"] = ""
-
-
-
-    return (ai_name, agent_id)
-
-def delete_message(user_id, agent_id, message_id):
-    """Delete a message from the database"""
-
-    with psycopg.connect(db_connection_string) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM messages WHERE user_id = %s AND agent_id = %s AND id = %s",
-                (user_id, agent_id, message_id),
-            )
-            conn.commit()
-
-def save_messages(user_id, agent_id, past, generated):
-    """Save the mesasages to the database"""
-
-    with psycopg.connect(db_connection_string) as conn:
-        with conn.cursor() as cur:
-            for user, ai in zip(past, generated):
-                cur.execute(
-                    "INSERT INTO messages (user_id, agent_id, message_type, message) VALUES (%s, %s, %s, %s) RETURNING id",
-                    (user_id, agent_id, "HUMAN", user),
-                    )
-                user_message_id = cur.fetchone()[0]
-
-                cur.execute(
-                    "INSERT INTO messages (user_id, agent_id, message_type, message) VALUES (%s, %s, %s, %s) RETURNING id",
-                    (user_id, agent_id, "AI", ai),
-                    )
-                ai_message_id = cur.fetchone()[0]
-                conn.commit()
-
-    return user_message_id, ai_message_id
-
-def save_message(user_id, agent_id, user, ai):
-    """Save the mesasage to the database"""
-
-    with psycopg.connect(db_connection_string) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO messages (user_id, agent_id, message_type, message) VALUES (%s, %s, %s, %s) returning id",
-                (user_id, agent_id, "HUMAN", user),
-                )
-            user_message_id = cur.fetchone()[0]
-
-            cur.execute(
-                "INSERT INTO messages (user_id, agent_id, message_type, message) VALUES (%s, %s, %s, %s) returning id",
-                (user_id, agent_id, "AI", ai),
-                )
-            ai_message_id = cur.fetchone()[0]
-            conn.commit()
-
-    return user_message_id, ai_message_id
+    agent = st.session_state["agent"] 
+    return agent
 
 
 
 def submit():
     st.session_state.submitted_input = st.session_state.input_widget
     st.session_state.input_widget = ""
-
-
-def ask_chatter(chatter, user_input, past=[], generated=[]):
-    response = chatter.predict(input=user_input)
-    return response
-
-
-import psycopg
-
-
-def create_tables():
-    conn = psycopg.connect(db_connection_string)
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS Agents (
-            agent_id SERIAL PRIMARY KEY,
-            user_id VARCHAR(255) NOT NULL,
-            update_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            agent_name TEXT NOT NULL,
-            config_name TEXT NOT NULL,
-            config_data JSONB NOT NULL,
-            hidden BOOLEAN NOT NULL DEFAULT FALSE,
-            CONSTRAINT unique_config UNIQUE (user_id, config_name, hidden)
-            );
-        """
-    )
-
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS Messages (
-        id SERIAL PRIMARY KEY,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        user_id VARCHAR(255) NOT NULL,
-        agent_id INTEGER NOT NULL,
-        message_type VARCHAR(255) NOT NULL,
-        message TEXT NOT NULL
-        );
-        """
-    )
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def load_configs(
-    user_id: str, superuser: bool = False, default_prompt: str = BASE_PROMPT
-):
-    with psycopg.connect(db_connection_string) as conn:
-        with conn.cursor() as cur:
-            # Select configs for this user from agents table
-            query = f"SELECT agent_id, config_name, config_data, update_date, agent_name FROM Agents WHERE user_id = '{user_id}' and hidden = {superuser} ORDER BY update_date DESC;"
-            cur.execute(query)
-            configs = cur.fetchall()
-
-            # Shape into dictonary for returning to user
-            config_dict = {}
-            for c in configs:
-                config_dict[c[1]] = AgentConfig(
-                    agent_id=c[0],
-                    config_name=c[1],
-                    config_data=c[2],
-                    update_date=c[3],
-                    agent_name=c[4],
-                    hidden=superuser,
-                )
-
-    # if no configs for this user, initialize with default config
-    if len(config_dict) == 0:
-        config_name = "Base"
-        agent_name = "AI"
-        config_data = {
-            "prompt": default_prompt,
-        }
-        agent_config = save_config(user_id, config_name, config_data, superuser, agent_name)
-        config_dict[config_name] = agent_config
-
-    return config_dict
-
-
-import json
-
-
-def save_config(user_id: str, config_name: str, config_data: dict, superuser: bool, agent_name: str):
-    with psycopg.connect(db_connection_string) as conn:
-        with conn.cursor() as cur:
-            # Insert config into agents table
-            config_json = json.dumps(config_data)
-            query = "INSERT INTO Agents (user_id, config_name, config_data, agent_name, hidden) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (user_id, config_name, hidden) DO UPDATE SET config_data = %s, update_date = CURRENT_TIMESTAMP, agent_name = %s RETURNING agent_id, update_date;"
-            cur.execute(
-                query,
-                (
-                    user_id,
-                    config_name,
-                    config_json,
-                    agent_name,
-                    superuser,
-                    config_json,
-                    agent_name,
-                ),
-            )
-            c = cur.fetchone()
-            agent_id = c[0]
-            update_date = c[1]
-            conn.commit()
-
-    agent_config = AgentConfig(
-        agent_id=agent_id,
-        config_name=config_name,
-        config_data=config_data,
-        update_date=update_date,
-        agent_name=agent_name,
-        hidden=superuser,
-    )
-    return agent_config
-
-
-def load_messages(user_id: str, agent_id: int):
-    with psycopg.connect(db_connection_string) as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT message_type, message, id FROM Messages WHERE user_id = %s and agent_id = %s", (user_id,agent_id))
-            messages = cur.fetchall()
-            st.session_state.past.clear()
-            st.session_state.generated.clear()
-            st.session_state.past_id.clear()
-            st.session_state.generated_id.clear()
-
-            for m in messages:
-                if m[0] == "HUMAN":
-                    st.session_state.past.append(m[1])
-                    st.session_state.past_id.append(m[2])
-                elif m[0] == "AI":
-                    st.session_state.generated.append(m[1])
-                    st.session_state.generated_id.append(m[2])
-                elif m[0] == "SYSTEM":
-                    st.write(f"Previous system message: {m[1]}")
-                else:
-                    raise (
-                        Exception(f"Unknown message type {m[0]} with content {m[1]}")
-                    )
-
-            if len(st.session_state.past) > 0:
-                st.session_state["last_input"] = st.session_state.past[-1]
-            
-            st.session_state["submitted_input"] = ""
-            rebuild_memory()
-
 
 def main(user_id: str, user_email: str, superuser: bool = False):
     """
@@ -477,15 +237,15 @@ def main(user_id: str, user_email: str, superuser: bool = False):
 
     # Create a sidebar
     with st.sidebar:
-        (ai_name, agent_id) = render_sidebar(
+        agent = render_sidebar(
             configs=configs, superuser=superuser, user_id=user_id
         )
 
-    st.title(f"{ai_name} Personal Assistant")
+    st.title(f"{agent.ai_prefix} Personal Assistant")
 
     # pull the users messages from the database
     if st.session_state["loaded_from_db"] == False:
-        load_messages(user_id=user_id, agent_id=agent_id)
+        agent.load_messages()
         st.session_state["loaded_from_db"] = True
 
     st.text_input(
@@ -496,30 +256,17 @@ def main(user_id: str, user_email: str, superuser: bool = False):
 
     # If the user has submitted input, ask the AI
     if user_input and user_input != st.session_state["last_input"]:
-        output = ask_chatter(
-            st.session_state["chatter"],
-            user_input,
-            past=st.session_state["past"],
-            generated=st.session_state["generated"],
-        )
-
-        # Save the message to the database
-        
-        (user_message_id, ai_message_id) = save_message(user_id=user_id, agent_id=agent_id, user=user_input, ai=output)
-
-        st.session_state.past.append(user_input)
-        st.session_state.past_id.append(user_message_id)
-        st.session_state.generated.append(output)
-        st.session_state.generated_id.append(ai_message_id)
+        output = agent.run(user_input)
         st.session_state["last_input"] = user_input
 
     message_style()
+    (generated, past) = agent.messages_to_display()
 
     # Display the messages
-    if st.session_state["generated"]:
-        for i in range(len(st.session_state["generated"]) - 1, -1, -1):
-            message(st.session_state["generated"][i], key=str(i))
-            message(st.session_state["past"][i], is_user=True, key=str(i) + "_user")
+    if generated:
+        for i in range(len(generated) - 1, -1, -1):
+            message(generated[i], key=str(i))
+            message(past[i], is_user=True, key=str(i) + "_user")
 
 
 

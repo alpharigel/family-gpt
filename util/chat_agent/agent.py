@@ -1,6 +1,7 @@
 """A langchain conversational chain that implements the streamlit_agent abstract class."""
 
 from ..streamlit_agent import StreamlitAgent
+from ..message import message, message_style
 
 import streamlit as st
 from langchain.prompts import (
@@ -18,12 +19,21 @@ from ..db_postgress import FamilyGPTDatabase
 
 class ChatAgent(StreamlitAgent):
 
-    def __init__(self, database: FamilyGPTDatabase, user_id: str, agent_id: str, user_prompt: str = BASE_PROMPT, ai_prefix: str = "AI"):
+    def __init__(
+            self, 
+            database: FamilyGPTDatabase, 
+            user_id: str, 
+            agent_id: str, 
+            update_agent_in_db: callable,
+            user_prompt: str = BASE_PROMPT, 
+            agent_name: str = "AI",
+            ):
         self.database = database
         self.user_id = user_id
         self.agent_id = agent_id
-        self.ai_prefix = ai_prefix
+        self.agent_name = agent_name
         self.user_prompt = user_prompt
+        self.update_agent_in_db = update_agent_in_db
 
         self.past = []
         self.past_id = []
@@ -40,10 +50,13 @@ class ChatAgent(StreamlitAgent):
 
         self.llm = ChatOpenAI(temperature=0.8)
         self.memory = ConversationSummaryBufferMemory(
-            llm=self.llm, max_token_limit=1400, return_messages=True, ai_prefix=ai_prefix
+            llm=self.llm, max_token_limit=1400, return_messages=True, ai_prefix=agent_name
         )
         # memory = ConversationBufferMemory(return_messages=True)
         self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm)
+
+        # pull the users messages from the database
+        self.load_messages()
 
     def apply_prompt(self, prompt: str):
         if self.user_prompt != prompt:
@@ -61,19 +74,44 @@ class ChatAgent(StreamlitAgent):
         output = self.agent.run(user_input)
 
         # Save the message to the database        
-        (user_message_id, ai_message_id) = agent.save_message(user_id=user_id, agent_id=agent_id, user=user_input, ai=output)
+        (user_message_id, ai_message_id) = self.database.save_message(
+            user_id=self.user_id, 
+            agent_id=self.agent_id, 
+            user=user_input, 
+            ai=output,
+            )
 
         self.past.append(user_input)
         self.past_id.append(user_message_id)
         self.generated.append(output)
         self.generated_id.append(ai_message_id)
-
-    def messages_to_display(self):
-        return (self.generated, self.past)
     
     def steamlit_content(self):
+        self.render_sidebar()
+        self.render_message_interface()
 
+    def render_sidebar(self):
         with st.sidebar:
+
+            new_agent_name = st.text_input("Agent Name", self.agent_name, key="agent_name_widget")
+
+            new_user_prompt = st.text_area(
+                "Agent Prompt", self.user_prompt, key="prompt_widget", height=300
+            )
+
+            if new_agent_name != self.agent_name or new_user_prompt != self.user_prefix:
+                self.user_prefix = new_user_prompt
+                self.agent_name = new_agent_name
+                self.update_agent_in_db(self)
+                
+            if st.button("Apply"):
+                # apply new prompt
+                self.apply_prompt(new_user_prompt)
+
+                memory = self.memory
+                memory.clear()
+                for user, ai in zip(self.past, self.generated):
+                    memory.save_context({"input": user}, {"output": ai})
 
             if st.button("Current summary"):
                 memory = self.memory
@@ -83,48 +121,47 @@ class ChatAgent(StreamlitAgent):
                 st.write(my_summary)
 
             if st.button("Clear messages"):
-                st.session_state.past = []
-                st.session_state["past_id"] = []
-                st.session_state["generated"] = []
-                st.session_state["generated_id"] = []
-                st.session_state["last_input"] = ""
-                st.session_state["submitted_input"] = ""
+                self.past = []
+                self.past_id = []
+                self.generated = []
+                self.generated_id = []
+                self.prev_input = ""
+                self.submitted_input = ""
                 self.rebuild_memory()
 
             if st.button("Load messages"):
                 self.load_messages(user_id=self.user_id, agent_id=self.agent_id)
 
-            pop_last = st.button("Undo last message", key="undo_widget")
-            if pop_last:
-                st.session_state.submitted_input = ""
-                st.session_state.past.pop()
-                st.session_state.generated.pop()
-                self.database.delete_message(self.user_id, self.agent_id, st.session_state["past_id"].pop())
-                self.database.delete_message(self.user_id, self.agent_id, st.session_state["generated_id"].pop())
+            if st.button("Undo last message", key="undo_widget"):
+                self.past.pop()
+                self.generated.pop()
+                self.database.delete_message(self.user_id, self.agent_id, self.past_id.pop())
+                self.database.delete_message(self.user_id, self.agent_id, self.generated_id.pop())
                 self.rebuild_memory()
-                st.session_state["last_input"] = ""
+                self.prev_input = ""
+                self.submitted_input = ""
 
     def rebuild_memory(self):
         self.memory
         self.memory.clear()
-        for user, ai in zip(st.session_state.past, st.session_state.generated):
+        for user, ai in zip(self.past, self.generated):
             self.memory.save_context({"input": user}, {"output": ai})
 
 
-    def load_messages(self, user_id: str, agent_id: str):
-        messages = self.database.load_messages(user_id=user_id, agent_id=agent_id)
-        st.session_state.past.clear()
-        st.session_state.generated.clear()
-        st.session_state.past_id.clear()
-        st.session_state.generated_id.clear()
+    def load_messages(self):
+        messages = self.database.load_messages(user_id=self.user_id, agent_id=self.agent_id)
+        self.past = []
+        self.past_id = []
+        self.generated = []
+        self.generated_id = []
 
         for m in messages:
             if m[0] == "HUMAN":
-                st.session_state.past.append(m[1])
-                st.session_state.past_id.append(m[2])
+                self.past.append(m[1])
+                self.past_id.append(m[2])
             elif m[0] == "AI":
-                st.session_state.generated.append(m[1])
-                st.session_state.generated_id.append(m[2])
+                self.generated.append(m[1])
+                self.generated_id.append(m[2])
             elif m[0] == "SYSTEM":
                 st.write(f"Previous system message: {m[1]}")
             else:
@@ -132,11 +169,38 @@ class ChatAgent(StreamlitAgent):
                     Exception(f"Unknown message type {m[0]} with content {m[1]}")
                 )
 
-        if len(st.session_state.past) > 0:
-            st.session_state["last_input"] = st.session_state.past[-1]
-        
-        st.session_state["submitted_input"] = ""
-        self.rebuild_memory()
+        if len(self.past) > 0:
+            self.submitted_input = ''
+            self.prev_input = self.past[-1]
+        else:
+            self.submitted_input = 'Hello!'
+            self.prev_input = ''
 
-    def save_message(self, user_id: str, agent_id: str, message: str):
-        self.database.save_message(user_id=user_id, agent_id=agent_id, message=message)
+        self.rebuild_memory()        
+
+
+    def save_message(self, message: str):
+        self.database.save_message(user_id=self.user_id, agent_id=self.agent_id, message=message)
+
+    def submit(self):
+        self.submitted_input = st.session_state.input_widget
+        st.session_state.input_widget = ""
+
+    def render_message_interface(self):
+        st.title(f"{self.agent_name} Personal Assistant")
+
+        st.text_input("You: ", key="input_widget", on_change=self.submit)
+        user_input = self.submitted_input
+
+        # If the user has submitted input, ask the AI
+        if user_input and user_input != self.prev_input:
+            self.run(user_input)
+            self.prev_input = user_input
+
+        message_style()
+
+        # Display the messages
+        if self.generated:
+            for i in range(len(self.generated) - 1, -1, -1):
+                message(self.generated[i], key=str(i))
+                message(self.past[i], is_user=True, key=str(i) + "_user")

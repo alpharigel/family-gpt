@@ -15,10 +15,10 @@ class StreamlitAgent(ABC):
         pass
 
     @abstractmethod
-    def messages_to_display(self) -> tuple(str, str):
+    def streamlit_render(self) -> None:
+        """Render the agent content in streamlit, such as messagess"""
         pass
 
     @abstractmethod
-    @property
-    def ai_prefix(self) -> str:
+    def load_messages(self):
         pass

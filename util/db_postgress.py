@@ -3,20 +3,7 @@ import json
 
 import datetime
 from dataclasses import dataclass
-
-
-@dataclass
-class AgentConfig:
-    """
-    Data class that contains the minimum data in an agent configuration
-    """
-
-    agent_id: str
-    agent_name: str
-    config_name: str
-    config_data: dict  # usually contains 'prompt'
-    update_date: datetime.datetime
-    hidden: bool
+from .agent_config import AgentConfig
 
 class FamilyGPTDatabase:
     """Class to handle database operations"""
@@ -116,7 +103,17 @@ class FamilyGPTDatabase:
 
 
     def load_configs(self, 
-        user_id: str, superuser: bool, default_prompt: str ):
+        user_id: str, superuser: bool, default_prompt: str ) -> dict[str, AgentConfig]:
+        """Load the configs for this user from the database
+
+        Args:
+            user_id (str): The user id
+            superuser (bool): Whether the user is a superuser
+            default_prompt (str): The default prompt to use if no configs are found
+
+        Returns:
+            dict(str, AgentConfig): A dictionary of AgentConfig objects
+        """
         with psycopg.connect(self.db_connection_string) as conn:
             with conn.cursor() as cur:
                 # Select configs for this user from agents table

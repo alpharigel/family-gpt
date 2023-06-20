@@ -7,3 +7,5 @@ tiktoken
 git+https://github.com/hunkim/streamlit-google-oauth
 python-dotenv
 psycopg[binary]
+zep-python
+duckduckgo-search

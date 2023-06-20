@@ -49,22 +49,14 @@ def message(content, is_user:bool = False, key:str = None):
     if is_user:
         st.markdown(
             f"""
-            <div class="user-container">
-                <div class="user-box">
-                    {content}
-                </div>
-            </div>
+            <div class="user-container"><div class="user-box">{content}</div></div>
             """,
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
             f"""
-            <div class="ai-container">
-                <div class="ai-box">
-                    {content}
-                </div>
-            </div>
+            <div class="ai-container"><div class="ai-box">{content}</div></div>
             """,
             unsafe_allow_html=True,
         )

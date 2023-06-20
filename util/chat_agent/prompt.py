@@ -1,5 +1,3 @@
-
-
 BASE_PROMPT = """
 The following is a friendly texting conversation between a Human and an AI. 
 The AI is talkative and provides lots of specific details from its context. 

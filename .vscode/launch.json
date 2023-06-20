@@ -11,7 +11,7 @@
             "module": "streamlit",
             "args": [
                 "run",
-                "${file}",
+                "app.py",
             ]
         },
     ]

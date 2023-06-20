@@ -16,7 +16,6 @@ ZEP_API_URL = os.environ["ZEP_API_URL"]
 from dataclasses import dataclass
 
 from util.streamlit_agent import StreamlitAgent
-from util.chat_agent.prompt import BASE_PROMPT
 from util.agent_manager import AgentManager
 
 import logging
@@ -50,7 +49,7 @@ def main(user_id: str, superuser: bool = False):
 
     # Initialize the session state
     if "state" not in st.session_state:
-        agent_manager = AgentManager(database, user_id, superuser, default_prompt=BASE_PROMPT)
+        agent_manager = AgentManager(database, user_id, superuser)
         state = MyState(agent_manager=agent_manager, superuser=superuser)
         st.session_state["state"] = state
     else:

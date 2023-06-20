@@ -1,9 +1,11 @@
 import psycopg
 import json
 
-import datetime
-from dataclasses import dataclass
 from .agent_config import AgentConfig
+from .agent_type import StreamlitAgentType
+from .chat_agent.config import ChatAgentConfig
+from .zep_chat_agent.config import ZepChatAgentConfig
+from .zep_with_tools.config import ZepToolsAgentConfig
 
 class FamilyGPTDatabase:
     """Class to handle database operations"""
@@ -103,7 +105,7 @@ class FamilyGPTDatabase:
 
 
     def load_configs(self, 
-        user_id: str, superuser: bool, default_prompt: str ) -> dict[str, AgentConfig]:
+        user_id: str, superuser: bool) -> dict[str, AgentConfig]:
         """Load the configs for this user from the database
 
         Args:
@@ -124,10 +126,21 @@ class FamilyGPTDatabase:
                 # Shape into dictonary for returning to user
                 config_dict = {}
                 for c in configs:
+                    agent_type = c[2].get("agent_type", StreamlitAgentType.CONVERSATION_CHAIN)
+                    if agent_type == StreamlitAgentType.CONVERSATION_CHAIN:
+                        config_data = ChatAgentConfig(**c[2])
+                    elif agent_type == StreamlitAgentType.CHAIN_WITH_ZEP:
+                        config_data = ZepChatAgentConfig(**c[2])
+                    elif agent_type == StreamlitAgentType.ZEP_TOOLS:
+                        config_data = ZepToolsAgentConfig(**c[2])
+                    else:
+                        config_data = ZepChatAgentConfig(**c[2])
+                        #raise ValueError(f"Unknown agent type {agent_type}")
+                    
                     config_dict[c[1]] = AgentConfig(
                         agent_id=c[0],
                         config_name=c[1],
-                        config_data=c[2],
+                        config_data=config_data,
                         update_date=c[3],
                         agent_name=c[4],
                         hidden=superuser,
@@ -137,20 +150,18 @@ class FamilyGPTDatabase:
         if len(config_dict) == 0:
             config_name = "Base"
             agent_name = "AI"
-            config_data = {
-                "prompt": default_prompt,
-            }
+            config_data = ChatAgentConfig()
             agent_config = self.save_config(user_id, config_name, config_data, superuser, agent_name)
             config_dict[config_name] = agent_config
 
         return config_dict
 
 
-    def save_config(self, user_id: str, config_name: str, config_data: dict, superuser: bool, agent_name: str):
+    def save_config(self, user_id: str, config_name: str, config_data: ChatAgentConfig, superuser: bool, agent_name: str):
         with psycopg.connect(self.db_connection_string) as conn:
             with conn.cursor() as cur:
                 # Insert config into agents table
-                config_json = json.dumps(config_data)
+                config_json = json.dumps(config_data.__dict__)
                 query = "INSERT INTO Agents (user_id, config_name, config_data, agent_name, hidden) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (user_id, config_name, hidden) DO UPDATE SET config_data = %s, update_date = CURRENT_TIMESTAMP, agent_name = %s RETURNING agent_id, update_date;"
                 cur.execute(
                     query,
@@ -179,6 +190,23 @@ class FamilyGPTDatabase:
         )
         return agent_config
 
+    def delete_config(self, user_id: str, config_name: str, superuser: bool):
+        with psycopg.connect(self.db_connection_string) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM Agents WHERE user_id = %s AND config_name = %s AND hidden = %s",
+                    (user_id, config_name, superuser),
+                )
+                conn.commit()
+
+    def rename_config(self, user_id: str, config_name: str, new_config_name: str, superuser: bool):
+        with psycopg.connect(self.db_connection_string) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE Agents SET config_name = %s WHERE user_id = %s AND config_name = %s AND hidden = %s",
+                    (new_config_name, user_id, config_name, superuser),
+                )
+                conn.commit()
 
     def load_messages(self, user_id: str, agent_id: int):
         with psycopg.connect(self.db_connection_string) as conn:

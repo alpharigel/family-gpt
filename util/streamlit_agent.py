@@ -19,6 +19,3 @@ class StreamlitAgent(ABC):
         """Render the agent content in streamlit, such as messagess"""
         pass
 
-    @abstractmethod
-    def load_messages(self):
-        pass

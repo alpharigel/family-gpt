@@ -13,9 +13,8 @@ from langchain.prompts import (
 from langchain.chains import ConversationChain
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory
-
-from .prompt import BASE_PROMPT
 from ..db_postgress import FamilyGPTDatabase
+from .config import ChatAgentConfig
 
 class ChatAgent(StreamlitAgent):
 
@@ -25,14 +24,14 @@ class ChatAgent(StreamlitAgent):
             user_id: str, 
             agent_id: str, 
             update_agent_in_db: callable,
-            user_prompt: str = BASE_PROMPT, 
+            config_data: ChatAgentConfig, 
             agent_name: str = "AI",
             ):
         self.database = database
         self.user_id = user_id
         self.agent_id = agent_id
         self.agent_name = agent_name
-        self.user_prompt = user_prompt
+        self.config_data = config_data
         self.update_agent_in_db = update_agent_in_db
 
         self.past = []
@@ -42,7 +41,7 @@ class ChatAgent(StreamlitAgent):
 
         self.prompt = ChatPromptTemplate.from_messages(
             [
-                SystemMessagePromptTemplate.from_template(user_prompt),
+                SystemMessagePromptTemplate.from_template(self.config_data.prompt),
                 MessagesPlaceholder(variable_name="history"),
                 HumanMessagePromptTemplate.from_template("{input}"),
             ]
@@ -59,11 +58,11 @@ class ChatAgent(StreamlitAgent):
         self.load_messages()
 
     def apply_prompt(self, prompt: str):
-        if self.user_prompt != prompt:
-            self.user_prompt = prompt
+        if self.config_data.prompt != prompt:
+            self.config_data.prompt = prompt
             self.prompt = ChatPromptTemplate.from_messages(
                 [
-                    SystemMessagePromptTemplate.from_template(self.user_prompt),
+                    SystemMessagePromptTemplate.from_template(self.config_data.prompt),
                     MessagesPlaceholder(variable_name="history"),
                     HumanMessagePromptTemplate.from_template("{input}"),
                 ]
@@ -86,7 +85,7 @@ class ChatAgent(StreamlitAgent):
         self.generated.append(output)
         self.generated_id.append(ai_message_id)
     
-    def steamlit_content(self):
+    def streamlit_render(self):
         self.render_sidebar()
         self.render_message_interface()
 
@@ -96,11 +95,11 @@ class ChatAgent(StreamlitAgent):
             new_agent_name = st.text_input("Agent Name", self.agent_name, key="agent_name_widget")
 
             new_user_prompt = st.text_area(
-                "Agent Prompt", self.user_prompt, key="prompt_widget", height=300
+                "Agent Prompt", self.config_data.prompt, key="prompt_widget", height=300
             )
 
-            if new_agent_name != self.agent_name or new_user_prompt != self.user_prefix:
-                self.user_prefix = new_user_prompt
+            if new_agent_name != self.agent_name or new_user_prompt != self.config_data.prompt:
+                self.config_data.prompt = new_user_prompt
                 self.agent_name = new_agent_name
                 self.update_agent_in_db(self)
                 

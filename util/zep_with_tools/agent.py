@@ -47,18 +47,22 @@ from langchain.prompts import (
 from langchain.chains import ConversationChain
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory
+from langchain.agents import initialize_agent
 
 from .prompt import BASE_PROMPT
 from ..db_postgress import FamilyGPTDatabase
-from .config import ZepChatAgentConfig
+from .config import ZepToolsAgentConfig
 
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+from langchain.utilities import BingSearchAPIWrapper
+from langchain.tools import Tool
+from langchain.agents import AgentType
 
-class ZepChatAgent(StreamlitAgent):
+class ZepToolsAgent(StreamlitAgent):
 
     def __init__(
             self, 
@@ -66,7 +70,7 @@ class ZepChatAgent(StreamlitAgent):
             user_id: str, 
             agent_id: str, 
             update_agent_in_db: callable,
-            config_data: ZepChatAgentConfig = ZepChatAgentConfig(), 
+            config_data: ZepToolsAgentConfig = ZepToolsAgentConfig(), 
             agent_name: str = "AI",
             ):
         
@@ -93,15 +97,34 @@ class ZepChatAgent(StreamlitAgent):
             memory_key="chat_history", chat_memory=self.zep_chat_history, ai_prefix=self.agent_name
         )
 
+        search = BingSearchAPIWrapper()
+
+        self.tools = [
+            Tool.from_function(
+                func=search.run,
+                name="Search",
+                description="useful for when you need to answer questions about current events"
+                # coroutine= ... <- you can specify an async method if desired as well
+            ),
+        ]
+
         # initialize the agent
         self.llm = ChatOpenAI(temperature=0.8)
 
-        if '{chat_history}' not in self.config_data.prompt:
-            self.config_data.prompt = BASE_PROMPT
+        #if '{chat_history}' not in self.config_data.prompt:
+        #    self.config_data.prompt = BASE_PROMPT
 
         self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt)
 
-        self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm, verbose=True)
+        # self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm, verbose=True)
+        self.agent = initialize_agent(
+            tools=self.tools,
+            llm=self.llm,
+            agent=AgentType.OPENAI_FUNCTIONS,
+            memory=self.memory,
+            verbose=True,
+            prompt=self.prompt,
+        )
 
         for m in self.zep_chat_history.messages:
             if isinstance(m, HumanMessage):
@@ -122,7 +145,17 @@ class ZepChatAgent(StreamlitAgent):
         if self.config_data.prompt != prompt:
             self.config_data.prompt = prompt
             self.prompt = ChatPromptTemplate.from_template(prompt)
-            self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm, verbose=True)
+
+            # self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm, verbose=True)
+            self.agent = initialize_agent(
+                tools=self.tools,
+                llm=self.llm,
+                agent=AgentType.OPENAI_FUNCTIONS,
+                memory=self.memory,
+                verbose=True,
+                prompt=self.prompt,
+            )
+
 
     def run(self, user_input):
         output = self.agent.run(user_input)

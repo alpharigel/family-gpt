@@ -97,7 +97,9 @@ class ZepChatAgent(StreamlitAgent):
         self.llm = ChatOpenAI(temperature=0.8)
 
         if '{chat_history}' not in self.config_data.prompt:
-            self.config_data.prompt = BASE_PROMPT
+            self.config_data.prompt += "\n{chat_history}\n"
+        if '{input}' not in self.config_data.prompt:
+            self.config_data.prompt += "\nHuman: {input}\n" + self.agent_name + ": "
 
         self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt)
 

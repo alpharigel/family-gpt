@@ -5,6 +5,9 @@ If the AI does not know the answer to a question, tells the human as such.
 
 Please use markdown in your output format.
 
+Potentially useful previous messages:
+{chat_search}
+
 {chat_history}
 
 Human: {input}

@@ -7,7 +7,7 @@ import pickle
 from dotenv import load_dotenv
 import streamlit_google_oauth as oauth
 import os
-from util.db_postgress import FamilyGPTDatabase, AgentConfig
+from util.db_postgress import AgentConfig
 from langchain.memory.chat_message_histories import ZepChatMessageHistory
 
 load_dotenv()
@@ -50,7 +50,6 @@ from langchain.memory import ConversationSummaryBufferMemory
 from langchain.agents import initialize_agent
 
 from .prompt import BASE_PROMPT
-from ..db_postgress import FamilyGPTDatabase
 from .config import ZepToolsAgentConfig
 
 import logging
@@ -61,24 +60,23 @@ logger.setLevel(logging.INFO)
 from langchain.utilities import BingSearchAPIWrapper
 from langchain.tools import Tool
 from langchain.agents import AgentType
+from typing import Callable
 
 class ZepToolsAgent(StreamlitAgent):
 
     def __init__(
             self, 
-            database: FamilyGPTDatabase, 
             user_id: str, 
-            agent_id: str, 
-            update_agent_in_db: callable,
-            config_data: ZepToolsAgentConfig = ZepToolsAgentConfig(), 
+            agent_id: int, 
+            update_agent_in_db: Callable[[StreamlitAgent], None],
+            config_data: dict = {},
             agent_name: str = "AI",
             ):
         
-        self.database = database
         self.user_id = user_id
         self.agent_id = agent_id
         self.agent_name = agent_name
-        self.config_data = config_data
+        self.config_data = ZepToolsAgentConfig(**config_data) # type: ZepToolsAgentConfig
         self.update_agent_in_db = update_agent_in_db
 
         session_id = f"{self.agent_id}_{self.config_data.zep_iteration}"
@@ -97,7 +95,10 @@ class ZepToolsAgent(StreamlitAgent):
             memory_key="chat_history", chat_memory=self.zep_chat_history, ai_prefix=self.agent_name
         )
 
-        search = BingSearchAPIWrapper()
+        search = BingSearchAPIWrapper(
+            bing_subscription_key=os.environ["BING_SEARCH_API_KEY"], 
+            bing_search_url=os.environ["BING_SEARCH_URL"]
+            )
 
         self.tools = [
             Tool.from_function(
@@ -109,7 +110,7 @@ class ZepToolsAgent(StreamlitAgent):
         ]
 
         # initialize the agent
-        self.llm = ChatOpenAI(temperature=0.8)
+        self.llm = ChatOpenAI(temperature=0.8, client=None)
 
         #if '{chat_history}' not in self.config_data.prompt:
         #    self.config_data.prompt = BASE_PROMPT

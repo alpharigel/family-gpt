@@ -13,25 +13,27 @@ from langchain.prompts import (
 from langchain.chains import ConversationChain
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory
-from ..db_postgress import FamilyGPTDatabase
+from ..db_postgress import FamilyGPTDatabaseMessages
 from .config import ChatAgentConfig
+from typing import Callable
+
+import os
 
 class ChatAgent(StreamlitAgent):
 
     def __init__(
             self, 
-            database: FamilyGPTDatabase, 
             user_id: str, 
-            agent_id: str, 
-            update_agent_in_db: callable,
-            config_data: ChatAgentConfig, 
+            agent_id: int, 
+            update_agent_in_db: Callable[[StreamlitAgent], None],
+            config_data: dict, 
             agent_name: str = "AI",
             ):
-        self.database = database
+        self.database = FamilyGPTDatabaseMessages(os.environ["DATABASE_URL"])
         self.user_id = user_id
         self.agent_id = agent_id
         self.agent_name = agent_name
-        self.config_data = config_data
+        self.config_data = ChatAgentConfig(**config_data) # type: ChatAgentConfig
         self.update_agent_in_db = update_agent_in_db
 
         self.past = []
@@ -39,6 +41,12 @@ class ChatAgent(StreamlitAgent):
         self.generated = []
         self.generated_id = []
 
+        if '{chat_history}' in self.config_data.prompt:
+            self.config_data.prompt = self.config_data.prompt.replace('{chat_history}', '')
+        
+        if '{chat_search}' in self.config_data.prompt:
+            self.config_data.prompt = self.config_data.prompt.replace('{chat_search}', '')
+        
         self.prompt = ChatPromptTemplate.from_messages(
             [
                 SystemMessagePromptTemplate.from_template(self.config_data.prompt),
@@ -47,12 +55,15 @@ class ChatAgent(StreamlitAgent):
             ]
         )
 
-        self.llm = ChatOpenAI(temperature=0.8)
+        self.llm = ChatOpenAI(temperature=0.8, model='gpt-3.5-turbo', client=None)
         self.memory = ConversationSummaryBufferMemory(
             llm=self.llm, max_token_limit=1400, return_messages=True, ai_prefix=agent_name
         )
         # memory = ConversationBufferMemory(return_messages=True)
         self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm)
+
+        # make sure the database has the message table
+        self.database.create_tables()
 
         # pull the users messages from the database
         self.load_messages()
@@ -129,7 +140,7 @@ class ChatAgent(StreamlitAgent):
                 self.rebuild_memory()
 
             if st.button("Load messages"):
-                self.load_messages(user_id=self.user_id, agent_id=self.agent_id)
+                self.load_messages()
 
             if st.button("Undo last message", key="undo_widget"):
                 self.past.pop()
@@ -177,9 +188,6 @@ class ChatAgent(StreamlitAgent):
 
         self.rebuild_memory()        
 
-
-    def save_message(self, message: str):
-        self.database.save_message(user_id=self.user_id, agent_id=self.agent_id, message=message)
 
     def submit(self):
         self.submitted_input = st.session_state.input_widget

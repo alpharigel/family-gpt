@@ -1,9 +1,10 @@
 from dataclasses import dataclass
 from ..agent_type import StreamlitAgentType
 from .prompt import BASE_PROMPT
+from ..streamlit_agent import StreamlitAgentConfig
 
 @dataclass
-class ZepToolsAgentConfig:
+class ZepToolsAgentConfig(StreamlitAgentConfig):
     """Configuration for the ZepToolsAgent"""
     zep_iteration: int = 0
     prompt: str = BASE_PROMPT

@@ -7,7 +7,7 @@ import pickle
 from dotenv import load_dotenv
 import streamlit_google_oauth as oauth
 import os
-from util.db_postgress import FamilyGPTDatabase, AgentConfig
+from util.db_postgress import AgentConfig
 from langchain.memory.chat_message_histories import ZepChatMessageHistory
 from zep_python.exceptions import NotFoundError
 
@@ -16,7 +16,6 @@ load_dotenv()
 client_id = os.environ["GOOGLE_CLIENT_ID"]
 client_secret = os.environ["GOOGLE_CLIENT_SECRET"]
 redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
-db_connection_string = os.environ["DATABASE_URL"]
 ZEP_API_URL = os.environ["ZEP_API_URL"]
 
 from langchain.prompts import (
@@ -50,8 +49,11 @@ from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationSummaryBufferMemory
 
 from .prompt import BASE_PROMPT
-from ..db_postgress import FamilyGPTDatabase
 from .config import ZepChatAgentConfig
+
+from typing import Callable, List
+
+from zep_python import MemorySearchResult
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -62,19 +64,17 @@ class ZepChatAgent(StreamlitAgent):
 
     def __init__(
             self, 
-            database: FamilyGPTDatabase, 
             user_id: str, 
-            agent_id: str, 
-            update_agent_in_db: callable,
-            config_data: ZepChatAgentConfig = ZepChatAgentConfig(), 
+            agent_id: int, 
+            update_agent_in_db: Callable[[StreamlitAgent], None],
+            config_data: dict, 
             agent_name: str = "AI",
             ):
         
-        self.database = database
         self.user_id = user_id
         self.agent_id = agent_id
         self.agent_name = agent_name
-        self.config_data = config_data
+        self.config_data = ZepChatAgentConfig(**config_data) # type: ZepChatAgentConfig
         self.update_agent_in_db = update_agent_in_db
 
         session_id = f"{self.agent_id}_{self.config_data.zep_iteration}"
@@ -94,7 +94,7 @@ class ZepChatAgent(StreamlitAgent):
         )
 
         # initialize the agent
-        self.llm = ChatOpenAI(temperature=0.8)
+        self.llm = ChatOpenAI(temperature=0.8, client=None)
 
         if '{chat_search}' not in self.config_data.prompt:
             self.config_data.prompt = "\nPotentially useful previous messages:\n{chat_search}\n" + self.config_data.prompt
@@ -103,7 +103,7 @@ class ZepChatAgent(StreamlitAgent):
         if '{input}' not in self.config_data.prompt:
             self.config_data.prompt += "\nHuman: {input}\n" + self.agent_name + ": "
 
-        partial_variables = {
+        partial_variables: dict = {
             "chat_search": self.zep_search,
         }
         if '{tools}' in self.config_data.prompt:
@@ -112,9 +112,21 @@ class ZepChatAgent(StreamlitAgent):
             partial_variables["agent_scratchpad"] = ""            
         if '{ai_prefix}' in self.config_data.prompt:
             partial_variables["ai_prefix"] = self.agent_name
-
+ 
         self.partial_variables = partial_variables
-        self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt, partial_variables=self.partial_variables)
+        #self.prompt = ChatPromptTemplate.from_messages(
+        #    [
+        #        SystemMessagePromptTemplate.from_template(
+        #             self.config_data.prompt, 
+        #            partial_variables=self.partial_variables
+        #            ),
+        #        MessagesPlaceholder(variable_name="history"),
+        #        HumanMessagePromptTemplate.from_template("{input}"),
+        #     ]
+        #)
+        # self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm)
+
+        # self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt, partial_variables=self.partial_variables)
         #self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt)
         #self.prompt = ZepChatPromptTemplate(template=self.config_data.prompt, zep_memory=self.zep_chat_history,
         #                                        input_variables=["input", "chat_history"],
@@ -141,14 +153,16 @@ class ZepChatAgent(StreamlitAgent):
         # given the chat_history, input add the additional variables we can format
 
         try:
-            results = self.zep_chat_history.search(self.submitted_input)
+            results = self.zep_chat_history.search(self.submitted_input) # type: List[MemorySearchResult]
         except NotFoundError as e:
             return "No results found"
         
         parsed = ""
         for r in results:
             rm = r.message
-            parsed += f"{rm['created_at']} - {rm['role']}: {r.message['content']}\n"
+            if rm is None:
+                continue
+            parsed += f"{rm['created_at']} - {rm['role']}: {rm['content']}\n"
 
         return parsed
 

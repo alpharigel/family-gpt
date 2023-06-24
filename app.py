@@ -3,7 +3,6 @@ import streamlit as st
 from dotenv import load_dotenv
 import streamlit_google_oauth as oauth
 import os
-from util.db_postgress import FamilyGPTDatabase
 
 load_dotenv()
 
@@ -15,7 +14,6 @@ ZEP_API_URL = os.environ["ZEP_API_URL"]
 
 from dataclasses import dataclass
 
-from util.streamlit_agent import StreamlitAgent
 from util.agent_manager import AgentManager
 
 import logging
@@ -23,20 +21,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+from typing import Dict, Union
 
 @dataclass
 class MyState:
-    agent_manager: AgentManager
     superuser: bool
     overwrite_ask:bool = False
     prior_config_name:str = ""
-    agent: StreamlitAgent = None
-
 
 def get_session_state() -> MyState:
     """Get the session state."""
     return st.session_state["state"]
 
+
+
+from util.agent_type import StreamlitAgentType
+
+AVAILABLE_AGENTS: Dict[str, StreamlitAgentType] = {
+    "Simple Chat": StreamlitAgentType.CONVERSATION_CHAIN,
+    "Chat with LT Memory": StreamlitAgentType.CHAIN_WITH_ZEP
+}
+
+@st.cache_resource
+def get_agent_manager(user_id: str, superuser: bool, agent_type: StreamlitAgentType) -> AgentManager:
+    """Get the agent manager for the given user_id and agent_type."""
+    return AgentManager(user_id=user_id, superuser=superuser, agent_type=agent_type)
 
 def main(user_id: str, superuser: bool = False):
     """
@@ -44,24 +53,30 @@ def main(user_id: str, superuser: bool = False):
     """
 
     # Setup users environement
-    database = FamilyGPTDatabase(db_connection_string)
-    database.create_tables()
 
     # Initialize the session state
     if "state" not in st.session_state:
-        agent_manager = AgentManager(database, user_id, superuser)
-        state = MyState(agent_manager=agent_manager, superuser=superuser)
+        state = MyState(superuser=superuser)
         st.session_state["state"] = state
+        st.session_state.agent_managers = {}
     else:
         state = st.session_state["state"] # type: MyState
 
 
     # Create a sidebar
-    agent_manager = state.agent_manager
-    agent_manager.streamlit_render()
-    agent_manager.agent.streamlit_render()
+    with st.sidebar:
+        selected_agent = st.selectbox("Select Agent", list(AVAILABLE_AGENTS.keys()), key="agent_name")
+    if selected_agent is None:
+        selected_agent = list(AVAILABLE_AGENTS.keys())[0]
     
-
+    agent_type = AVAILABLE_AGENTS[selected_agent] 
+    if selected_agent in st.session_state.agent_managers:
+        manager = st.session_state.agent_managers[selected_agent]
+    else:
+        manager = get_agent_manager(user_id=user_id, superuser=superuser, agent_type=agent_type)
+        st.session_state.agent_managers[selected_agent] = manager
+    
+    manager.streamlit_render()    
 
 
 if __name__ == "__main__":
@@ -87,7 +102,7 @@ if __name__ == "__main__":
 
     # Check if the user is logged in.
     if login_info:
-        user_id, _user_email = login_info
+        user_id, _user_email = login_info 
         main(user_id, superuser=superuser)
 
     else:

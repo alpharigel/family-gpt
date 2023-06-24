@@ -45,7 +45,7 @@ def message_style():
     )
 
 # a function to display a message similar to Teams or iMessage
-def message(content, is_user:bool = False, key:str = None):
+def message(content, is_user:bool = False, key:str|None = None):
     if is_user:
         st.markdown(
             f"""

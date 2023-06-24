@@ -126,7 +126,7 @@ class ZepChatAgent(StreamlitAgent):
         #)
         # self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm)
 
-        # self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt, partial_variables=self.partial_variables)
+        self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt, partial_variables=self.partial_variables)
         #self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt)
         #self.prompt = ZepChatPromptTemplate(template=self.config_data.prompt, zep_memory=self.zep_chat_history,
         #                                        input_variables=["input", "chat_history"],

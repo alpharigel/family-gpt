@@ -16,59 +16,62 @@ from .zep_with_tools.agent import ZepToolsAgent
 
 from typing import Union, Callable
 
+
 @st.cache_resource
 def generate_agent(
-    user_id: str, 
+    user_id: str,
     agent_id: int,
-    config_data: dict, 
-    agent_name: str, 
+    config_data: dict,
+    agent_name: str,
     _update_agent_in_db: Callable[[StreamlitAgent], None],
     agent_type: StreamlitAgentType,
-    ) -> StreamlitAgent:
+) -> StreamlitAgent:
     """Generate an agent based on the agent type."""
 
     if agent_type == StreamlitAgentType.CONVERSATION_CHAIN:
         return ChatAgent(
-            user_id=user_id, 
-            agent_id=agent_id, 
-            config_data=config_data, 
+            user_id=user_id,
+            agent_id=agent_id,
+            config_data=config_data,
             agent_name=agent_name,
             update_agent_in_db=_update_agent_in_db,
-            )
+        )
     elif agent_type == StreamlitAgentType.CHAIN_WITH_ZEP:
         return ZepChatAgent(
-            user_id=user_id, 
-            agent_id=agent_id, 
-            config_data=config_data, 
+            user_id=user_id,
+            agent_id=agent_id,
+            config_data=config_data,
             agent_name=agent_name,
             update_agent_in_db=_update_agent_in_db,
         )
     elif agent_type == StreamlitAgentType.ZEP_TOOLS:
         return ZepToolsAgent(
-            user_id=user_id, 
-            agent_id=agent_id, 
-            config_data=config_data, 
+            user_id=user_id,
+            agent_id=agent_id,
+            config_data=config_data,
             agent_name=agent_name,
             update_agent_in_db=_update_agent_in_db,
         )
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
-    
 
 
 """Manages the selection and updating of an agent"""
-class AgentManager:
 
+
+class AgentManager:
     def __init__(self, user_id: str, superuser: bool, agent_type: StreamlitAgentType):
         """initialize the manager"""
 
         # load the available agents from the database
-        
+
         # pull the users config from the database
         database = FamilyGPTDatabaseAgents()
         database.create_tables()
 
-        configs = database.load_configs(user_id=user_id, superuser=superuser, agent_type=agent_type) # type: dict[str, AgentConfig]
+        configs = database.load_configs(
+            user_id=user_id, superuser=superuser, agent_type=agent_type
+        )  # type: dict[str, AgentConfig]
         self.configs = configs
         self.database = database
         self.user_id = user_id
@@ -80,20 +83,35 @@ class AgentManager:
             config_name = "Base"
             agent_name = "AI"
             config_data = dict()
-            agent_config = database.save_config(user_id, config_name, config_data.__dict__, superuser, agent_name, agent_type=agent_type)
+            agent_config = database.save_config(
+                user_id,
+                config_name,
+                config_data.__dict__,
+                superuser,
+                agent_name,
+                agent_type=agent_type,
+            )
             self.configs[config_name] = agent_config
 
         # get the most recently updated config
-        self.selected_config = sorted(self.configs.values(), key=lambda x: x.update_date, reverse=True)[0]
-        
+        self.selected_config = sorted(
+            self.configs.values(), key=lambda x: x.update_date, reverse=True
+        )[0]
+
         # create the agent
         agent_id = self.selected_config.agent_id
         config_data = self.selected_config.config_data
         agent_name = self.selected_config.agent_name
-        agent = generate_agent(self.user_id, agent_id, config_data, agent_name, self.update_agent_in_db, agent_type=self.agent_type)
+        agent = generate_agent(
+            self.user_id,
+            agent_id,
+            config_data,
+            agent_name,
+            self.update_agent_in_db,
+            agent_type=self.agent_type,
+        )
         self.agent = agent
 
-        
     def select_config(self, config_name):
         """Select the config by name"""
         self.selected_config = self.configs[config_name]
@@ -110,16 +128,15 @@ class AgentManager:
 
         self.selected_config = agent_config
         self.configs[agent_config.config_name] = agent_config
-        st.success(f"Config with name '{agent_config.config_name}' updated successfully!")
-
+        st.success(
+            f"Config with name '{agent_config.config_name}' updated successfully!"
+        )
 
     def new_config(self):
         """Create a new config"""
 
         ai_name = self.selected_config.agent_name
-        new_config_name = (
-            ai_name + "_" + datetime.datetime.now().strftime("%Y%m%d")
-        )
+        new_config_name = ai_name + "_" + datetime.datetime.now().strftime("%Y%m%d")
         if new_config_name in self.configs:
             i = 1
             new_config_name = new_config_name + f" {i}"
@@ -132,7 +149,14 @@ class AgentManager:
         superuser = self.superuser
         agent_name = self.selected_config.agent_name
         config_data = copy.deepcopy(self.selected_config.config_data)
-        agent_config = self.database.save_config(user_id, new_config_name, config_data, superuser, agent_name, agent_type=self.agent_type)
+        agent_config = self.database.save_config(
+            user_id,
+            new_config_name,
+            config_data,
+            superuser,
+            agent_name,
+            agent_type=self.agent_type,
+        )
         self.configs[new_config_name] = agent_config
         self.selected_config = agent_config
         return new_config_name
@@ -147,9 +171,10 @@ class AgentManager:
             config_names = list(self.configs.keys())
             config_names.append("New Configuration")
             selected_prompt_name = st.selectbox(
-                "Select agent config:", config_names, index=config_names.index(self.selected_config.config_name)
+                "Select agent config:",
+                config_names,
+                index=config_names.index(self.selected_config.config_name),
             )
-
 
             # If "New Configuration" is selected, ask user to enter a new config name
             if selected_prompt_name == "New Configuration":
@@ -159,7 +184,14 @@ class AgentManager:
 
                 # make sure the agent is up
                 config_data = new_config.config_data
-                agent = generate_agent(self.user_id, new_config.agent_id, config_data, new_config.agent_name, self.update_agent_in_db, agent_type=self.agent_type)
+                agent = generate_agent(
+                    self.user_id,
+                    new_config.agent_id,
+                    config_data,
+                    new_config.agent_name,
+                    self.update_agent_in_db,
+                    agent_type=self.agent_type,
+                )
                 self.agent = agent
                 self.update_agent_in_db(agent)
 
@@ -170,20 +202,39 @@ class AgentManager:
                 agent_id = self.selected_config.agent_id
                 config_data = self.selected_config.config_data
                 agent_name = self.selected_config.agent_name
-                agent = generate_agent(self.user_id, agent_id, config_data, agent_name, self.update_agent_in_db, self.agent_type)
+                agent = generate_agent(
+                    self.user_id,
+                    agent_id,
+                    config_data,
+                    agent_name,
+                    self.update_agent_in_db,
+                    self.agent_type,
+                )
                 self.agent = agent
-
 
             st.session_state.setdefault("rename_config", False)
             if st.button("Rename config") or st.session_state.rename_config:
                 st.session_state.rename_config = True
-                new_config_name = st.text_input("Enter new config name:", value=self.selected_config.config_name)
-                if st.button("Apply", key="apply rename am") and new_config_name != self.selected_config.config_name:
+                new_config_name = st.text_input(
+                    "Enter new config name:", value=self.selected_config.config_name
+                )
+                if (
+                    st.button("Apply", key="apply rename am")
+                    and new_config_name != self.selected_config.config_name
+                ):
                     self.configs[new_config_name] = self.selected_config
-                    self.database.rename_config(self.user_id, self.selected_config.config_name, new_config_name, self.superuser, agent_type=self.agent_type)
+                    self.database.rename_config(
+                        self.user_id,
+                        self.selected_config.config_name,
+                        new_config_name,
+                        self.superuser,
+                        agent_type=self.agent_type,
+                    )
                     del self.configs[self.selected_config.config_name]
                     self.selected_config.config_name = new_config_name
-                    st.success(f"Config with name '{new_config_name}' updated successfully!")
+                    st.success(
+                        f"Config with name '{new_config_name}' updated successfully!"
+                    )
                     st.session_state.rename_config = False
 
                 if st.button("Cancel", key="cancel rename am"):
@@ -192,7 +243,4 @@ class AgentManager:
             else:
                 st.session_state.rename_config = False
 
-
         self.agent.streamlit_render()
-
-        

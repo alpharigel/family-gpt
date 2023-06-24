@@ -1,5 +1,5 @@
-
 import streamlit as st
+
 
 # create css sytle for the message
 def message_style():
@@ -40,12 +40,13 @@ def message_style():
             justify-content: flex-end
             }
         </style>
-        """, 
+        """,
         unsafe_allow_html=True,
     )
 
+
 # a function to display a message similar to Teams or iMessage
-def message(content, is_user:bool = False, key:str|None = None):
+def message(content, is_user: bool = False, key: str | None = None):
     if is_user:
         st.markdown(
             f"""

@@ -17,35 +17,41 @@ from dataclasses import dataclass
 from util.agent_manager import AgentManager
 
 import logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 from typing import Dict, Union
 
+
 @dataclass
 class MyState:
     superuser: bool
-    overwrite_ask:bool = False
-    prior_config_name:str = ""
+    overwrite_ask: bool = False
+    prior_config_name: str = ""
+
 
 def get_session_state() -> MyState:
     """Get the session state."""
     return st.session_state["state"]
 
 
-
 from util.agent_type import StreamlitAgentType
 
 AVAILABLE_AGENTS: Dict[str, StreamlitAgentType] = {
     "Simple Chat": StreamlitAgentType.CONVERSATION_CHAIN,
-    "Chat with LT Memory": StreamlitAgentType.CHAIN_WITH_ZEP
+    "Chat with LT Memory": StreamlitAgentType.CHAIN_WITH_ZEP,
 }
 
+
 @st.cache_resource
-def get_agent_manager(user_id: str, superuser: bool, agent_type: StreamlitAgentType) -> AgentManager:
+def get_agent_manager(
+    user_id: str, superuser: bool, agent_type: StreamlitAgentType
+) -> AgentManager:
     """Get the agent manager for the given user_id and agent_type."""
     return AgentManager(user_id=user_id, superuser=superuser, agent_type=agent_type)
+
 
 def main(user_id: str, superuser: bool = False):
     """
@@ -60,23 +66,26 @@ def main(user_id: str, superuser: bool = False):
         st.session_state["state"] = state
         st.session_state.agent_managers = {}
     else:
-        state = st.session_state["state"] # type: MyState
-
+        state = st.session_state["state"]  # type: MyState
 
     # Create a sidebar
     with st.sidebar:
-        selected_agent = st.selectbox("Select Agent", list(AVAILABLE_AGENTS.keys()), key="agent_name")
+        selected_agent = st.selectbox(
+            "Select Agent", list(AVAILABLE_AGENTS.keys()), key="agent_name"
+        )
     if selected_agent is None:
         selected_agent = list(AVAILABLE_AGENTS.keys())[0]
-    
-    agent_type = AVAILABLE_AGENTS[selected_agent] 
+
+    agent_type = AVAILABLE_AGENTS[selected_agent]
     if selected_agent in st.session_state.agent_managers:
         manager = st.session_state.agent_managers[selected_agent]
     else:
-        manager = get_agent_manager(user_id=user_id, superuser=superuser, agent_type=agent_type)
+        manager = get_agent_manager(
+            user_id=user_id, superuser=superuser, agent_type=agent_type
+        )
         st.session_state.agent_managers[selected_agent] = manager
-    
-    manager.streamlit_render()    
+
+    manager.streamlit_render()
 
 
 if __name__ == "__main__":
@@ -102,7 +111,7 @@ if __name__ == "__main__":
 
     # Check if the user is logged in.
     if login_info:
-        user_id, _user_email = login_info 
+        user_id, _user_email = login_info
         main(user_id, superuser=superuser)
 
     else:

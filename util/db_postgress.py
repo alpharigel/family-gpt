@@ -7,7 +7,8 @@ from .chat_agent.config import ChatAgentConfig
 from .zep_chat_agent.config import ZepChatAgentConfig
 from .zep_with_tools.config import ZepToolsAgentConfig
 
-class FamilyGPTDatabaseMessages():
+
+class FamilyGPTDatabaseMessages:
     """Class to handle database operations for storing messages"""
 
     def __init__(self, db_connection_string: str) -> None:
@@ -22,7 +23,7 @@ class FamilyGPTDatabaseMessages():
                 cur.execute(
                     "INSERT INTO messages (user_id, agent_id, message_type, message) VALUES (%s, %s, %s, %s) returning id",
                     (user_id, agent_id, "HUMAN", user),
-                    )
+                )
                 rowone = cur.fetchone()
                 if rowone is None:
                     raise Exception("No message saved")
@@ -32,7 +33,7 @@ class FamilyGPTDatabaseMessages():
                 cur.execute(
                     "INSERT INTO messages (user_id, agent_id, message_type, message) VALUES (%s, %s, %s, %s) returning id",
                     (user_id, agent_id, "AI", ai),
-                    )
+                )
                 rowone = cur.fetchone()
                 if rowone is None:
                     raise Exception("No message saved")
@@ -64,7 +65,7 @@ class FamilyGPTDatabaseMessages():
                     cur.execute(
                         "INSERT INTO messages (user_id, agent_id, message_type, message) VALUES (%s, %s, %s, %s) RETURNING id",
                         (user_id, agent_id, "HUMAN", user),
-                        )
+                    )
                     rowone = cur.fetchone()
                     if rowone is None:
                         raise Exception("No message saved")
@@ -73,7 +74,7 @@ class FamilyGPTDatabaseMessages():
                     cur.execute(
                         "INSERT INTO messages (user_id, agent_id, message_type, message) VALUES (%s, %s, %s, %s) RETURNING id",
                         (user_id, agent_id, "AI", ai),
-                        )
+                    )
                     rowone = cur.fetchone()
                     if rowone is None:
                         raise Exception("No message saved")
@@ -81,7 +82,6 @@ class FamilyGPTDatabaseMessages():
                     conn.commit()
 
         return user_message_id, ai_message_id
-
 
     def create_tables(self):
         conn = psycopg.connect(self.db_connection_string)
@@ -107,12 +107,18 @@ class FamilyGPTDatabaseMessages():
     def load_messages(self, user_id: str, agent_id: int):
         with psycopg.connect(self.db_connection_string) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT message_type, message, id FROM Messages WHERE user_id = %s and agent_id = %s", (user_id,agent_id))
+                cur.execute(
+                    "SELECT message_type, message, id FROM Messages WHERE user_id = %s and agent_id = %s",
+                    (user_id, agent_id),
+                )
                 messages = cur.fetchall()
                 return messages
 
-import os 
-class FamilyGPTDatabaseAgents():
+
+import os
+
+
+class FamilyGPTDatabaseAgents:
     """Class to handle database operations"""
 
     def __init__(self, db_connection_string: str = os.environ["DATABASE_URL"]) -> None:
@@ -140,28 +146,26 @@ class FamilyGPTDatabaseAgents():
         )
 
         # If agent type isnt a column, add it with default StreamlitAgentType.CONVERSATION_CHAIN value for existing rows
-        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'agents' AND column_name = 'agent_type';")
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'agents' AND column_name = 'agent_type';"
+        )
         if not cur.fetchone():
             query = f"ALTER TABLE agents ADD COLUMN agent_type TEXT DEFAULT '{StreamlitAgentType.CONVERSATION_CHAIN.value}';"
             cur.execute(query)
-            
+
             # make sure the (user_id, config_name, hidden, agent_type) is unique in the table by updating the CONSTRAINT
             cur.execute("ALTER TABLE agents DROP CONSTRAINT unique_config;")
-            cur.execute("ALTER TABLE agents ADD CONSTRAINT unique_config UNIQUE (user_id, config_name, hidden, agent_type);")
-
-
+            cur.execute(
+                "ALTER TABLE agents ADD CONSTRAINT unique_config UNIQUE (user_id, config_name, hidden, agent_type);"
+            )
 
         conn.commit()
         cur.close()
         conn.close()
 
-
     def load_configs(
-            self, 
-            user_id: str, 
-            superuser: bool, 
-            agent_type: StreamlitAgentType
-            ) -> dict[str, AgentConfig]:
+        self, user_id: str, superuser: bool, agent_type: StreamlitAgentType
+    ) -> dict[str, AgentConfig]:
         """Load the configs for this user from the database
 
         Args:
@@ -182,13 +186,13 @@ class FamilyGPTDatabaseAgents():
                 and hidden = {superuser}
                 and agent_type = '{agent_type.value}'
                 ORDER BY update_date DESC;
-                """ 
-                cur.execute(query)# type: ignore
+                """
+                cur.execute(query)  # type: ignore
                 configs = cur.fetchall()
 
                 # Shape into dictonary for returning to user
                 config_dict = {}
-                for c in configs:                    
+                for c in configs:
                     config_dict[c[1]] = AgentConfig(
                         agent_id=c[0],
                         config_name=c[1],
@@ -196,7 +200,7 @@ class FamilyGPTDatabaseAgents():
                         update_date=c[3],
                         agent_name=c[4],
                         hidden=superuser,
-                        agent_type=agent_type
+                        agent_type=agent_type,
                     )
 
         # if no configs for this user, initialize with default config
@@ -204,13 +208,27 @@ class FamilyGPTDatabaseAgents():
             config_name = "Base"
             agent_name = "AI"
             config_data = dict()
-            agent_config = self.save_config(user_id, config_name, config_data, superuser, agent_name, agent_type=agent_type)
+            agent_config = self.save_config(
+                user_id,
+                config_name,
+                config_data,
+                superuser,
+                agent_name,
+                agent_type=agent_type,
+            )
             config_dict[config_name] = agent_config
 
         return config_dict
 
-
-    def save_config(self, user_id: str, config_name: str, config_data: dict, superuser: bool, agent_name: str, agent_type:StreamlitAgentType) -> AgentConfig:
+    def save_config(
+        self,
+        user_id: str,
+        config_name: str,
+        config_data: dict,
+        superuser: bool,
+        agent_name: str,
+        agent_type: StreamlitAgentType,
+    ) -> AgentConfig:
         with psycopg.connect(self.db_connection_string) as conn:
             with conn.cursor() as cur:
                 # Insert config into agents table
@@ -251,11 +269,17 @@ class FamilyGPTDatabaseAgents():
             update_date=update_date,
             agent_name=agent_name,
             hidden=superuser,
-            agent_type=agent_type
+            agent_type=agent_type,
         )
         return agent_config
 
-    def delete_config(self, user_id: str, config_name: str, superuser: bool, agent_type: StreamlitAgentType):
+    def delete_config(
+        self,
+        user_id: str,
+        config_name: str,
+        superuser: bool,
+        agent_type: StreamlitAgentType,
+    ):
         with psycopg.connect(self.db_connection_string) as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -264,12 +288,24 @@ class FamilyGPTDatabaseAgents():
                 )
                 conn.commit()
 
-    def rename_config(self, user_id: str, config_name: str, new_config_name: str, superuser: bool, agent_type: StreamlitAgentType):
+    def rename_config(
+        self,
+        user_id: str,
+        config_name: str,
+        new_config_name: str,
+        superuser: bool,
+        agent_type: StreamlitAgentType,
+    ):
         with psycopg.connect(self.db_connection_string) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE Agents SET config_name = %s WHERE user_id = %s AND config_name = %s AND hidden = %s and agent_type = %s",
-                    (new_config_name, user_id, config_name, superuser, agent_type.value),
+                    (
+                        new_config_name,
+                        user_id,
+                        config_name,
+                        superuser,
+                        agent_type.value,
+                    ),
                 )
                 conn.commit()
-

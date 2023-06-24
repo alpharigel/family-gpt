@@ -4,5 +4,7 @@
     },
     "python.formatting.provider": "none",
     "python.linting.enabled": true,
-    "python.analysis.typeCheckingMode": "basic"
-}
+    "python.analysis.typeCheckingMode": "basic",
+    "python.linting.pylintArgs": [
+        "--disable=C,E1129"
+    ]}

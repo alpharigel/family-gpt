@@ -1,7 +1,7 @@
 """A langchain conversational chain that implements the streamlit_agent abstract class."""
 
+from util.exception import FamilyGPTException
 from ..streamlit_agent import StreamlitAgent
-from ..message import message, message_style
 
 import streamlit as st
 from langchain.prompts import (
@@ -171,7 +171,6 @@ class ChatAgent(StreamlitAgent):
                 self.submitted_input = ""
 
     def rebuild_memory(self):
-        self.memory
         self.memory.clear()
         for user, ai in zip(self.past, self.generated):
             self.memory.save_context({"input": user}, {"output": ai})
@@ -195,7 +194,7 @@ class ChatAgent(StreamlitAgent):
             elif m[0] == "SYSTEM":
                 st.write(f"Previous system message: {m[1]}")
             else:
-                raise (Exception(f"Unknown message type {m[0]} with content {m[1]}"))
+                raise (FamilyGPTException(f"Unknown message type {m[0]} with content {m[1]}"))
 
         if len(self.past) > 0:
             self.submitted_input = ""
@@ -206,25 +205,3 @@ class ChatAgent(StreamlitAgent):
 
         self.rebuild_memory()
 
-    def submit(self):
-        self.submitted_input = st.session_state.input_widget
-        st.session_state.input_widget = ""
-
-    def render_message_interface(self):
-        st.title(f"{self.agent_name} Personal Assistant")
-
-        st.text_input("You: ", key="input_widget", on_change=self.submit)
-        user_input = self.submitted_input
-
-        # If the user has submitted input, ask the AI
-        if user_input and user_input != self.prev_input:
-            self.run(user_input)
-            self.prev_input = user_input
-
-        message_style()
-
-        # Display the messages
-        if self.generated:
-            for i in range(len(self.generated) - 1, -1, -1):
-                message(self.generated[i], key=str(i))
-                message(self.past[i], is_user=True, key=str(i) + "_user")

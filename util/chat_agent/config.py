@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from .prompt import BASE_PROMPT
-from ..agent_type import StreamlitAgentType
 from ..streamlit_agent import StreamlitAgentConfig
 
 

@@ -14,7 +14,7 @@ from .zep_chat_agent.agent import ZepChatAgent
 from .zep_with_tools.agent import ZepToolsAgent
 
 
-from typing import Union, Callable
+from typing import Callable
 
 
 @st.cache_resource
@@ -56,10 +56,9 @@ def generate_agent(
         raise ValueError(f"Unknown agent type: {agent_type}")
 
 
-"""Manages the selection and updating of an agent"""
-
-
 class AgentManager:
+    """Manages the selection and updating of an agent"""
+    
     def __init__(self, user_id: str, superuser: bool, agent_type: StreamlitAgentType):
         """initialize the manager"""
 
@@ -86,7 +85,7 @@ class AgentManager:
             agent_config = database.save_config(
                 user_id,
                 config_name,
-                config_data.__dict__,
+                config_data,
                 superuser,
                 agent_name,
                 agent_type=agent_type,

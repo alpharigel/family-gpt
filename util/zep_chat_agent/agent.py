@@ -1,66 +1,38 @@
-import streamlit as st
-from util.message import message, message_style
-
-import requests
-import datetime
-import pickle
-from dotenv import load_dotenv
-import streamlit_google_oauth as oauth
-import os
-from util.db_postgress import AgentConfig
-from langchain.memory.chat_message_histories import ZepChatMessageHistory
-from zep_python.exceptions import NotFoundError
-
-load_dotenv()
-
-client_id = os.environ["GOOGLE_CLIENT_ID"]
-client_secret = os.environ["GOOGLE_CLIENT_SECRET"]
-redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
-ZEP_API_URL = os.environ["ZEP_API_URL"]
-
-from langchain.prompts import (
-    ChatPromptTemplate,
-    MessagesPlaceholder,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-)
-from langchain.prompts.prompt import PromptTemplate
-from langchain.chains import ConversationChain
-from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationBufferMemory, ConversationSummaryBufferMemory
-from langchain.schema import messages_to_dict, messages_from_dict
-from langchain.schema import AIMessage, HumanMessage, SystemMessage
-
-
 """A langchain conversational chain that implements the streamlit_agent abstract class."""
 
-from ..streamlit_agent import StreamlitAgent
-from ..message import message, message_style
-
-import streamlit as st
-from langchain.prompts import (
-    ChatPromptTemplate,
-    MessagesPlaceholder,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-)
-from langchain.chains import ConversationChain
-from langchain.chat_models import ChatOpenAI
-from langchain.memory import ConversationSummaryBufferMemory
-
-from .prompt import BASE_PROMPT
-from .config import ZepChatAgentConfig
-
+import datetime
+import logging
+import os
+import re
 from typing import Callable, List
 
+import streamlit as st
+from langchain.chains import ConversationChain
+from langchain.chat_models import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+from langchain.memory.chat_message_histories import ZepChatMessageHistory
+from langchain.prompts import (ChatPromptTemplate, HumanMessagePromptTemplate,
+                               SystemMessagePromptTemplate)
+from langchain.prompts.prompt import PromptTemplate
+from langchain.schema import AIMessage, HumanMessage
 from zep_python import MemorySearchResult
+from zep_python.exceptions import NotFoundError
 
-import logging
+from ..streamlit_agent import StreamlitAgent
+from .config import ZepChatAgentConfig
+from ..exception import FamilyGPTException
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+ZEP_API_URL = os.environ["ZEP_API_URL"]
+
+def get_session_id(user_id: str, agent_id: int, iteration: int) -> str:
+    env_name = os.environ["FAMILYGPT_ENV_NAME"]
+    session_id = str(f"{env_name}_{user_id}_{agent_id}_{iteration}")  # 
+    safe_string = re.sub(r'\W+', '_', session_id)
+    return safe_string
 
 class ZepChatAgent(StreamlitAgent):
     def __init__(
@@ -74,43 +46,61 @@ class ZepChatAgent(StreamlitAgent):
         self.user_id = user_id
         self.agent_id = agent_id
         self.agent_name = agent_name
-        self.config_data = ZepChatAgentConfig(**config_data)  # type: ZepChatAgentConfig
+        self.config_data = self.init_config_data(config_data) # type: ZepChatAgentConfig
         self.update_agent_in_db = update_agent_in_db
 
-        session_id = f"{self.agent_id}_{self.config_data.zep_iteration}"
-
         self.past = []
-        self.past_id = []
         self.generated = []
-        self.generated_id = []
 
+        # create the agent from component parts
+        self.zep_chat_history = self.init_zep_chat_history(user_id, agent_id)
+        self.memory = self.init_memory()
+        self.llm = self.init_llm()
+        self.config_data.prompt = self.clean_user_prompt(self.config_data.prompt)
+        self.prompt = self.compute_prompt(self.config_data.prompt)
+        self.agent = self.create_agent()
+        self.init_messages()
+
+    def init_zep_chat_history(self, user_id, agent_id) -> ZepChatMessageHistory:
+        session_id = get_session_id(user_id, agent_id, self.config_data.zep_iteration)
         logger.info(
-            f"Generating ConversationChain with Zep chat history for session {session_id}"
+            "Generating ConversationChain with Zep chat history for session %s", 
+            session_id
         )
-
         # Use a standard ConversationBufferMemory to encapsulate the Zep chat history
-        self.zep_chat_history = ZepChatMessageHistory(
+        return ZepChatMessageHistory(
             session_id=session_id, url=ZEP_API_URL
         )
 
-        self.memory = ConversationBufferMemory(
+
+    def init_memory(self) -> ConversationBufferMemory:
+        return ConversationBufferMemory(
             memory_key="chat_history",
             chat_memory=self.zep_chat_history,
             ai_prefix=self.agent_name,
         )
 
-        # initialize the agent
-        self.llm = ChatOpenAI(temperature=0.8, client=None)
+    def init_config_data(self, config_data:dict) -> ZepChatAgentConfig:
+        return ZepChatAgentConfig(**config_data)  
 
-        if "{chat_search}" not in self.config_data.prompt:
-            self.config_data.prompt = (
+    def init_llm(self):
+        # initialize the agent
+        return ChatOpenAI(temperature=0.8, client=None)
+
+    def clean_user_prompt(self, prompt: str) -> str:
+
+        if "{chat_search}" not in prompt:
+            prompt = (
                 "\nPotentially useful previous messages:\n{chat_search}\n"
-                + self.config_data.prompt
+                + prompt
             )
-        if "{chat_history}" not in self.config_data.prompt:
-            self.config_data.prompt += "\n{chat_history}\n"
+        if "{chat_history}" not in prompt:
+            prompt += "\n{chat_history}\n"
         # if '{input}' not in self.config_data.prompt:
         #    self.config_data.prompt += "\nHuman: {input}\n" + self.agent_name + ": "
+        return prompt
+
+    def compute_prompt(self, prompt):
 
         partial_variables: dict = {
             "chat_search": self.zep_search,
@@ -121,37 +111,35 @@ class ZepChatAgent(StreamlitAgent):
             partial_variables["agent_scratchpad"] = ""
         if "{ai_prefix}" in self.config_data.prompt:
             partial_variables["ai_prefix"] = self.agent_name
+        if "{current_datetime}" in self.config_data.prompt:
+            partial_variables["current_datetime"] = self.get_current_datetime()
 
-        self.partial_variables = partial_variables
         prompt_template = PromptTemplate.from_template(
-            self.config_data.prompt, partial_variables=self.partial_variables
+            prompt, partial_variables=partial_variables
         )
-        self.prompt = ChatPromptTemplate.from_messages(
+        prompt = ChatPromptTemplate.from_messages(
             [
                 SystemMessagePromptTemplate(prompt=prompt_template),
                 # MessagesPlaceholder(variable_name="chat_history"),
                 HumanMessagePromptTemplate.from_template("{input}"),
             ]
         )
-        # self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm)
+        return prompt
 
-        # self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt, partial_variables=self.partial_variables)
-        # self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt)
-        # self.prompt = ZepChatPromptTemplate(template=self.config_data.prompt, zep_memory=self.zep_chat_history,
-        #                                        input_variables=["input", "chat_history"],
-        #                                        messages=BaseMessage(self.config_data.prompt))
-
-        self.agent = ConversationChain(
+    def create_agent(self) -> ConversationChain:
+        return ConversationChain(
             memory=self.memory, prompt=self.prompt, llm=self.llm, verbose=True
         )
+        
 
+    def init_messages(self):
         for m in self.zep_chat_history.messages:
             if isinstance(m, HumanMessage):
                 self.past.append(m.content)
             elif isinstance(m, AIMessage):
                 self.generated.append(m.content)
             else:
-                raise Exception(f"Unknown message {m} with content {m.content}")
+                raise FamilyGPTException(f"Unknown message {m} with content {m.content}")
 
         if len(self.past) > 0:
             self.submitted_input = ""
@@ -159,6 +147,7 @@ class ZepChatAgent(StreamlitAgent):
         else:
             self.submitted_input = "Hello!"
             self.prev_input = ""
+            self.submit()
 
     def zep_search(self) -> str:
         # given the chat_history, input add the additional variables we can format
@@ -167,7 +156,7 @@ class ZepChatAgent(StreamlitAgent):
             results = self.zep_chat_history.search(
                 self.submitted_input
             )  # type: List[MemorySearchResult]
-        except NotFoundError as e:
+        except NotFoundError:
             return "No results found"
 
         parsed = ""
@@ -181,16 +170,9 @@ class ZepChatAgent(StreamlitAgent):
 
     def apply_prompt(self, prompt: str):
         if self.config_data.prompt != prompt:
-            self.config_data.prompt = prompt
-            # self.prompt = ChatPromptTemplate.from_template(prompt)
-            self.prompt = ChatPromptTemplate.from_template(
-                self.config_data.prompt, partial_variables=self.partial_variables
-            )
-            # self.prompt = ZepChatPromptTemplate(template=self.config_data.prompt, zep_memory=self.zep_chat_history,
-            #                                    input_variables=["input", "chat_history"])
-            self.agent = ConversationChain(
-                memory=self.memory, prompt=self.prompt, llm=self.llm, verbose=True
-            )
+            self.config_data.prompt = self.clean_user_prompt(prompt)
+            self.prompt = self.compute_prompt(self.config_data.prompt)
+            self.agent = self.create_agent()
 
     def run(self, user_input):
         output = self.agent.run(user_input)
@@ -199,6 +181,9 @@ class ZepChatAgent(StreamlitAgent):
         # self.past_id.append(user_message_id)
         self.generated.append(output)
         # self.generated_id.append(ai_message_id)
+
+    def get_current_datetime(self):
+        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def streamlit_render(self):
         self.render_sidebar()
@@ -242,7 +227,7 @@ class ZepChatAgent(StreamlitAgent):
         # zep_chat_history.clear()
         # could work around by generating a new session id for zep.
         self.config_data.zep_iteration += 1
-        session_id = f"{self.agent_id}_{self.config_data.zep_iteration}"
+        session_id = get_session_id(self.user_id, self.agent_id, self.config_data.zep_iteration)
 
         self.zep_chat_history = ZepChatMessageHistory(
             session_id=session_id, url=ZEP_API_URL
@@ -268,25 +253,4 @@ class ZepChatAgent(StreamlitAgent):
 
         self.update_agent_in_db(self)
 
-    def submit(self):
-        self.submitted_input = st.session_state.input_widget
-        st.session_state.input_widget = ""
 
-    def render_message_interface(self):
-        st.title(f"{self.agent_name} Personal Assistant")
-
-        st.text_input("You: ", key="input_widget", on_change=self.submit)
-        user_input = self.submitted_input
-
-        # If the user has submitted input, ask the AI
-        if user_input and user_input != self.prev_input:
-            self.run(user_input)
-            self.prev_input = user_input
-
-        message_style()
-
-        # Display the messages
-        if self.generated:
-            for i in range(len(self.generated) - 1, -1, -1):
-                message(self.generated[i], key=str(i))
-                message(self.past[i], is_user=True, key=str(i) + "_user")

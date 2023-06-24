@@ -3,10 +3,9 @@ import json
 
 from .agent_config import AgentConfig
 from .agent_type import StreamlitAgentType
-from .chat_agent.config import ChatAgentConfig
-from .zep_chat_agent.config import ZepChatAgentConfig
-from .zep_with_tools.config import ZepToolsAgentConfig
 
+class FamilyGPTDatabaseException(Exception):
+    """Exception class for database errors"""
 
 class FamilyGPTDatabaseMessages:
     """Class to handle database operations for storing messages"""
@@ -26,7 +25,7 @@ class FamilyGPTDatabaseMessages:
                 )
                 rowone = cur.fetchone()
                 if rowone is None:
-                    raise Exception("No message saved")
+                    raise FamilyGPTDatabaseException("No message saved")
                 else:
                     user_message_id = rowone[0]
 
@@ -36,7 +35,7 @@ class FamilyGPTDatabaseMessages:
                 )
                 rowone = cur.fetchone()
                 if rowone is None:
-                    raise Exception("No message saved")
+                    raise FamilyGPTDatabaseException("No message saved")
                 else:
                     ai_message_id = rowone[0]
                 conn.commit()
@@ -68,7 +67,7 @@ class FamilyGPTDatabaseMessages:
                     )
                     rowone = cur.fetchone()
                     if rowone is None:
-                        raise Exception("No message saved")
+                        raise FamilyGPTDatabaseException("No message saved")
                     user_message_id += rowone[0]
 
                     cur.execute(
@@ -77,7 +76,7 @@ class FamilyGPTDatabaseMessages:
                     )
                     rowone = cur.fetchone()
                     if rowone is None:
-                        raise Exception("No message saved")
+                        raise FamilyGPTDatabaseException("No message saved")
                     ai_message_id += rowone[0]
                     conn.commit()
 
@@ -257,7 +256,7 @@ class FamilyGPTDatabaseAgents:
                 )
                 c = cur.fetchone()
                 if c is None:
-                    raise Exception("Could not save config")
+                    raise FamilyGPTDatabaseException("Could not save config")
                 agent_id = c[0]
                 update_date = c[1]
                 conn.commit()

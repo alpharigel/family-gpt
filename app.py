@@ -1,28 +1,22 @@
-import streamlit as st
-
-from dotenv import load_dotenv
-import streamlit_google_oauth as oauth
 import os
 
-load_dotenv()
+import streamlit as st
+import streamlit_google_oauth as oauth
+from dotenv import load_dotenv
 
-client_id = os.environ["GOOGLE_CLIENT_ID"]
-client_secret = os.environ["GOOGLE_CLIENT_SECRET"]
-redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
-db_connection_string = os.environ["DATABASE_URL"]
-ZEP_API_URL = os.environ["ZEP_API_URL"]
-
+import logging
 from dataclasses import dataclass
 
 from util.agent_manager import AgentManager
 
-import logging
+from typing import Dict
+
+load_dotenv()
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-from typing import Dict, Union
 
 
 @dataclass
@@ -42,6 +36,7 @@ from util.agent_type import StreamlitAgentType
 AVAILABLE_AGENTS: Dict[str, StreamlitAgentType] = {
     "Simple Chat": StreamlitAgentType.CONVERSATION_CHAIN,
     "Chat with LT Memory": StreamlitAgentType.CHAIN_WITH_ZEP,
+    "Chat with Tools": StreamlitAgentType.ZEP_TOOLS,
 }
 
 
@@ -87,11 +82,7 @@ def main(user_id: str, superuser: bool = False):
 
     manager.streamlit_render()
 
-
-if __name__ == "__main__":
-    # Set the page title and favicon
-    st.set_page_config(page_title=f"GPT Personal Assistant", page_icon=":tree:")
-
+def login():
     query_params = st.experimental_get_query_params()
     extra = ""
     superuser = False
@@ -99,6 +90,10 @@ if __name__ == "__main__":
         if "True" in query_params["superuser"]:
             extra = "?superuser=True"
             superuser = True
+
+    client_id = os.environ["GOOGLE_CLIENT_ID"]
+    client_secret = os.environ["GOOGLE_CLIENT_SECRET"]
+    redirect_uri = os.environ["GOOGLE_REDIRECT_URI"]
 
     # Create a login button using st.button
     login_info = oauth.login(
@@ -116,3 +111,11 @@ if __name__ == "__main__":
 
     else:
         st.write("Please login")
+
+
+if __name__ == "__main__":
+    # Set the page title and favicon
+    st.set_page_config(page_title="GPT Personal Assistant", page_icon=":tree:")
+
+    # login
+    login()

@@ -24,6 +24,7 @@ from langchain.prompts import (
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
 )
+from langchain.prompts.prompt import PromptTemplate
 from langchain.chains import ConversationChain
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory, ConversationSummaryBufferMemory
@@ -100,8 +101,8 @@ class ZepChatAgent(StreamlitAgent):
             self.config_data.prompt = "\nPotentially useful previous messages:\n{chat_search}\n" + self.config_data.prompt
         if '{chat_history}' not in self.config_data.prompt:
             self.config_data.prompt += "\n{chat_history}\n"
-        if '{input}' not in self.config_data.prompt:
-            self.config_data.prompt += "\nHuman: {input}\n" + self.agent_name + ": "
+        #if '{input}' not in self.config_data.prompt:
+        #    self.config_data.prompt += "\nHuman: {input}\n" + self.agent_name + ": "
 
         partial_variables: dict = {
             "chat_search": self.zep_search,
@@ -114,19 +115,17 @@ class ZepChatAgent(StreamlitAgent):
             partial_variables["ai_prefix"] = self.agent_name
  
         self.partial_variables = partial_variables
-        #self.prompt = ChatPromptTemplate.from_messages(
-        #    [
-        #        SystemMessagePromptTemplate.from_template(
-        #             self.config_data.prompt, 
-        #            partial_variables=self.partial_variables
-        #            ),
-        #        MessagesPlaceholder(variable_name="history"),
-        #        HumanMessagePromptTemplate.from_template("{input}"),
-        #     ]
-        #)
+        prompt_template = PromptTemplate.from_template(self.config_data.prompt, partial_variables=self.partial_variables)
+        self.prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate(prompt=prompt_template),
+                # MessagesPlaceholder(variable_name="chat_history"),
+                HumanMessagePromptTemplate.from_template("{input}"),
+             ]
+        )
         # self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm)
 
-        self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt, partial_variables=self.partial_variables)
+        #self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt, partial_variables=self.partial_variables)
         #self.prompt = ChatPromptTemplate.from_template(self.config_data.prompt)
         #self.prompt = ZepChatPromptTemplate(template=self.config_data.prompt, zep_memory=self.zep_chat_history,
         #                                        input_variables=["input", "chat_history"],

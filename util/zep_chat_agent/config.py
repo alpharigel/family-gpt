@@ -11,3 +11,5 @@ class ZepChatAgentConfig(StreamlitAgentConfig):
     zep_iteration: int = 0
     prompt: str = BASE_PROMPT
     agent_type: StreamlitAgentType = StreamlitAgentType.CHAIN_WITH_ZEP  # deprecated
+    zep_lastn: int = 20
+    

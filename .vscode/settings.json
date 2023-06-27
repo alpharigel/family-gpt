@@ -6,5 +6,5 @@
     "python.linting.enabled": true,
     "python.analysis.typeCheckingMode": "basic",
     "python.linting.pylintArgs": [
-        "--disable=C,E1129"
+        "--disable=C,E1129,W1203"
     ]}

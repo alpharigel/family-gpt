@@ -11,3 +11,5 @@ class ZepToolsAgentConfig(StreamlitAgentConfig):
     zep_iteration: int = 0
     prompt: str = BASE_PROMPT
     agent_type: StreamlitAgentType = StreamlitAgentType.ZEP_TOOLS
+    zep_lastn: int = 20
+    

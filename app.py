@@ -68,6 +68,7 @@ def main(user_id: str, superuser: bool = False):
         selected_agent = st.selectbox(
             "Select Agent", list(AVAILABLE_AGENTS.keys()), key="agent_name"
         )
+
     if selected_agent is None:
         selected_agent = list(AVAILABLE_AGENTS.keys())[0]
 
@@ -79,6 +80,12 @@ def main(user_id: str, superuser: bool = False):
             user_id=user_id, superuser=superuser, agent_type=agent_type
         )
         st.session_state.agent_managers[selected_agent] = manager
+
+    with st.sidebar:
+        if st.button('Clear Agent'):
+            st.cache_resource.clear()
+
+
 
     manager.streamlit_render()
 

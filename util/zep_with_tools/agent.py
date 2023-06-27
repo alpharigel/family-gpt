@@ -23,10 +23,24 @@ from ..streamlit_agent import StreamlitAgent
 from ..zep_chat_agent.agent import ZepChatAgent
 from .config import ZepToolsAgentConfig
 
+from langchain.agents.agent_toolkits import FileManagementToolkit
+
+from langchain.tools import BaseTool
+from typing import List, Union
+
+#from tempfile import TemporaryDirectory
+
+# We'll make a temporary directory to avoid clutter
+#working_directory = TemporaryDirectory()
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+from langchain.tools.python.tool import PythonAstREPLTool
+from langchain.agents import load_tools
 
 
 class ZepToolsAgent(ZepChatAgent):
@@ -37,7 +51,12 @@ class ZepToolsAgent(ZepChatAgent):
         update_agent_in_db: Callable[[StreamlitAgent], None],
         config_data: dict,
         agent_name: str = "AI",
+        tools: Union[List[BaseTool],None] = None,
     ):
+        if tools:
+            self.tools = tools
+        else:
+            self.tools = self.default_tools()
         # call initialization of parent class
         super().__init__(
             user_id=user_id,
@@ -46,6 +65,33 @@ class ZepToolsAgent(ZepChatAgent):
             config_data=config_data,
             agent_name=agent_name,
         )
+
+    # create a class method to provide a list of default tools
+    @classmethod
+    def default_tools(cls):
+        search = BingSearchAPIWrapper(
+            bing_subscription_key=os.environ["BING_SUBSCRIPTION_KEY"],
+            bing_search_url=os.environ["BING_SEARCH_URL"],
+        )
+        python = PythonAstREPLTool()
+        requests_tools = load_tools(["requests_all"])
+
+        file_toolkit = FileManagementToolkit(
+            root_dir='C:\\Users\\jayfd\\Dev\\iris'
+        )  # If you don't provide a root_dir, operations will default to the current working directory
+
+        my_tools = [
+            Tool.from_function(
+                func=search.run,
+                name="Search",
+                description="useful for when you need to answer questions about current events"
+                # coroutine= ... <- you can specify an async method if desired as well
+            ),
+            python,
+        ] + requests_tools + file_toolkit.get_tools()
+
+        return my_tools
+
 
 
     def init_config_data(self, config_data:dict) -> ZepToolsAgentConfig:
@@ -102,41 +148,24 @@ class ZepToolsAgent(ZepChatAgent):
 
     def create_agent(self) -> AgentExecutor:
         """Create the agent."""
-        search = BingSearchAPIWrapper(
-            bing_subscription_key=os.environ["BING_SUBSCRIPTION_KEY"],
-            bing_search_url=os.environ["BING_SEARCH_URL"],
-        )
-
-        from langchain.tools.python.tool import PythonAstREPLTool
-        python = PythonAstREPLTool()
-
-        tools = [
-            Tool.from_function(
-                func=search.run,
-                name="Search",
-                description="useful for when you need to answer questions about current events"
-                # coroutine= ... <- you can specify an async method if desired as well
-            ),
-            python,
-        ]        
 
         # create the openai functions agent
         func_agent = OpenAIFunctionsAgent(
-            tools=tools,
+            tools=self.tools,
             llm=self.llm,
             prompt=self.prompt,
         )
 
         agent_executor = AgentExecutor(
-            tools=tools,
+            tools=self.tools,
             agent=func_agent,
             memory=self.memory,
             verbose=True, 
-            handle_parsing_errors=True
+            handle_parsing_errors=False
         )
         # Do this so we can see exactly what's going on under the hood
-        import langchain
-        langchain.debug = True
+        # import langchain
+        # langchain.debug = False
 
         # self.agent = ConversationChain(memory=self.memory, prompt=self.prompt, llm=self.llm, verbose=True)
         return agent_executor

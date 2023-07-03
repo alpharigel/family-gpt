@@ -85,6 +85,7 @@ class ZepChatAgent(StreamlitAgent):
             chat_memory=self.zep_chat_history,
             ai_prefix=self.agent_name,
             return_messages=True,
+            
         )
 
     def init_config_data(self, config_data:dict) -> ZepChatAgentConfig:
@@ -135,7 +136,7 @@ class ZepChatAgent(StreamlitAgent):
         )
         return sys_prompt
 
-    def create_agent(self) -> ConversationChain:
+    def create_agent(self):
         return ConversationChain(
             memory=self.memory, prompt=self.prompt, llm=self.llm, verbose=True
         )
@@ -163,13 +164,26 @@ class ZepChatAgent(StreamlitAgent):
     def zep_search(self) -> str:
         # given the chat_history, input add the additional variables we can format
 
-        try:
-            results = self.zep_chat_history.search(
-                self.submitted_input, 
-                limit=3
-            )  # type: List[MemorySearchResult]
-        except NotFoundError:
-            return "No results found"
+        # import readtimeout
+        from httpcore import ReadTimeout as ReadTimeout
+
+        # if search has a ReadTimeout error, retry 3 times
+        max_retries = 3
+        num_retries = 0
+        results = []
+
+        while num_retries < max_retries:
+            try:
+                results = self.zep_chat_history.search(self.submitted_input, limit=3) # type: List[MemorySearchResult]
+                break
+            except ReadTimeout:
+                logger.warning("ReadTimeout error in zep_search for '%s', retrying", self.submitted_input)
+                num_retries += 1
+                if num_retries == max_retries:
+                    raise        
+            except NotFoundError:
+                return "No results found"
+
 
         parsed = ""
         for r in results:

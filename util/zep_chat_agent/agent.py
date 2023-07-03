@@ -75,7 +75,7 @@ class ZepChatAgent(StreamlitAgent):
         return ZepChatMessageHistory(
             session_id=session_id, 
             url=ZEP_API_URL,
-            lastn=self.config_data.zep_lastn, 
+            lastn=6 #self.config_data.zep_lastn, 
         )
 
 
@@ -85,7 +85,7 @@ class ZepChatAgent(StreamlitAgent):
             chat_memory=self.zep_chat_history,
             ai_prefix=self.agent_name,
             return_messages=True,
-            
+
         )
 
     def init_config_data(self, config_data:dict) -> ZepChatAgentConfig:
